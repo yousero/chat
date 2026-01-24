@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анонимный чат</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Анонимный чат</h1>
+            <div class="user-info">
+                <span>Вы: </span>
+                <span id="username"></span>
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <div id="messages" class="messages"></div>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="messageInput" placeholder="Введите сообщение..." autocomplete="off">
+            <button id="sendButton">Отправить</button>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getDatabase, ref, push, onChildAdded, query, orderByKey, limitToLast, startAfter } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+        
+        // Экспортируем Firebase функции для использования в app.js
+        window.firebaseApp = { initializeApp, getDatabase, ref, push, onChildAdded, query, orderByKey, limitToLast, startAfter };
+        window.firebaseReady = true;
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
