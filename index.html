@@ -13,6 +13,24 @@
             <div class="user-info">
                 <span>Вы: </span>
                 <span id="username"></span>
+                <button id="changeNicknameBtn" class="change-nickname-btn" title="Изменить никнейм">✏️</button>
+            </div>
+        </div>
+
+        <!-- Модальное окно для изменения никнейма -->
+        <div id="nicknameModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Изменить никнейм</h2>
+                    <button class="modal-close" id="closeModalBtn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" id="newNicknameInput" placeholder="Введите новый никнейм (32 символа)" maxlength="32" autocomplete="off">
+                    <div class="modal-buttons">
+                        <button id="generateNicknameBtn" class="btn-secondary">Сгенерировать случайный</button>
+                        <button id="saveNicknameBtn" class="btn-primary">Сохранить</button>
+                    </div>
+                </div>
             </div>
         </div>
         

@@ -69,9 +69,15 @@ const messagesContainer = document.getElementById('messages');
 const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
 const usernameDisplay = document.getElementById('username');
+const changeNicknameBtn = document.getElementById('changeNicknameBtn');
+const nicknameModal = document.getElementById('nicknameModal');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const newNicknameInput = document.getElementById('newNicknameInput');
+const saveNicknameBtn = document.getElementById('saveNicknameBtn');
+const generateNicknameBtn = document.getElementById('generateNicknameBtn');
 
-// Получение никнейма
-const username = getOrCreateNickname();
+// Получение никнейма (делаем переменной, чтобы можно было изменять)
+let username = getOrCreateNickname();
 usernameDisplay.textContent = username;
 
 // Флаги для управления скроллом
@@ -245,6 +251,40 @@ function handleMessageAdded(snapshot) {
     }
 }
 
+// Функции для работы с никнеймом
+function openNicknameModal() {
+    newNicknameInput.value = username;
+    nicknameModal.classList.add('show');
+    newNicknameInput.focus();
+    newNicknameInput.select();
+}
+
+function closeNicknameModal() {
+    nicknameModal.classList.remove('show');
+}
+
+function changeNickname(newNickname) {
+    if (!newNickname || newNickname.trim() === '') {
+        alert('Никнейм не может быть пустым');
+        return;
+    }
+    
+    newNickname = newNickname.trim();
+    
+    // Ограничиваем длину до 32 символов
+    if (newNickname.length > 32) {
+        newNickname = newNickname.substring(0, 32);
+    }
+    
+    // Сохраняем новый никнейм
+    username = newNickname;
+    localStorage.setItem('chat_nickname', username);
+    usernameDisplay.textContent = username;
+    
+    console.log('Никнейм изменен на:', username);
+    closeNicknameModal();
+}
+
 // Инициализация приложения после подключения Firebase
 function initApp() {
     // Обработка скролла пользователя
@@ -263,6 +303,44 @@ function initApp() {
     messageInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             sendMessage();
+        }
+    });
+
+    // Обработчики для изменения никнейма
+    changeNicknameBtn.addEventListener('click', openNicknameModal);
+    closeModalBtn.addEventListener('click', closeNicknameModal);
+    
+    // Закрытие модального окна при клике вне его
+    nicknameModal.addEventListener('click', (e) => {
+        if (e.target === nicknameModal) {
+            closeNicknameModal();
+        }
+    });
+    
+    // Закрытие по Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && nicknameModal.classList.contains('show')) {
+            closeNicknameModal();
+        }
+    });
+    
+    // Сохранение никнейма
+    saveNicknameBtn.addEventListener('click', () => {
+        changeNickname(newNicknameInput.value);
+    });
+    
+    // Генерация случайного никнейма
+    generateNicknameBtn.addEventListener('click', () => {
+        const randomNickname = generateRandomNickname();
+        newNicknameInput.value = randomNickname;
+        newNicknameInput.focus();
+        newNicknameInput.select();
+    });
+    
+    // Сохранение по Enter в поле ввода никнейма
+    newNicknameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            changeNickname(newNicknameInput.value);
         }
     });
 
