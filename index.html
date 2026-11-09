@@ -56,19 +56,33 @@
             </div>
         </div>
 
-        <!-- Модальное окно для изменения никнейма -->
+        <!-- Модальное окно профиля -->
         <div id="nicknameModal" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>Change nickname</h2>
+                    <h2>Edit Profile</h2>
                     <button class="modal-close" id="closeModalBtn">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <input type="text" id="newNicknameInput" placeholder="Enter a new nickname (32 characters)"
-                        maxlength="32" autocomplete="off">
+                    <label style="font-size: 13px; color: #666; margin-bottom: 4px; display: block;">Email (cannot be
+                        changed)</label>
+                    <input type="email" id="profileEmail" disabled
+                        style="background: #eee; color: #888; cursor: not-allowed;">
+
+                    <label style="font-size: 13px; color: #666; margin-bottom: 4px; display: block;">Username</label>
+                    <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                        <input type="text" id="newNicknameInput" placeholder="Enter username" maxlength="32"
+                            autocomplete="off" style="margin-bottom: 0;">
+                        <button id="generateNicknameBtn" class="btn-secondary" style="padding: 0 12px;">🎲</button>
+                    </div>
+
+                    <label style="font-size: 13px; color: #666; margin-bottom: 4px; display: block;">New Password (leave
+                        empty to keep current)</label>
+                    <input type="password" id="newPasswordInput" placeholder="New password" autocomplete="new-password">
+                    <div id="profileError" class="auth-error" style="margin-bottom: 10px;"></div>
+
                     <div class="modal-buttons">
-                        <button id="generateNicknameBtn" class="btn-secondary">Generate random</button>
-                        <button id="saveNicknameBtn" class="btn-primary">Save</button>
+                        <button id="saveNicknameBtn" class="btn-primary">Save Changes</button>
                     </div>
                 </div>
             </div>
