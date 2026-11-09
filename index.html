@@ -1,19 +1,58 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anonymous Chat</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-    <div class="container">
+
+    <!-- ===== Экран авторизации ===== -->
+    <div id="authScreen" class="screen">
+        <div class="auth-container">
+            <h1>Anonymous Chat</h1>
+            <div class="auth-tabs">
+                <button id="loginTab" class="auth-tab active">Login</button>
+                <button id="registerTab" class="auth-tab">Register</button>
+            </div>
+            <div class="auth-form">
+                <input type="email" id="authEmail" placeholder="Email" autocomplete="email">
+                <input type="password" id="authPassword" placeholder="Password" autocomplete="current-password">
+                <input type="password" id="authPasswordConfirm" placeholder="Confirm password"
+                    autocomplete="new-password" style="display:none;">
+                <button id="authSubmitBtn" class="btn-primary">Login</button>
+                <div id="authError" class="auth-error"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Экран верификации ===== -->
+    <div id="verifyScreen" class="screen">
+        <div class="auth-container">
+            <h1>Verify your email</h1>
+            <p>We sent a verification link to<br><strong id="verifyEmail"></strong></p>
+            <p class="verify-hint">Check your inbox (and spam folder) and click the link to continue.</p>
+            <div class="verify-buttons">
+                <button id="resendVerifyBtn" class="btn-secondary">Resend email</button>
+                <button id="checkVerifyBtn" class="btn-primary">I've verified ✓</button>
+            </div>
+            <button id="logoutBtnVerify" class="link-btn">Log out</button>
+            <div id="verifyMessage" class="auth-error"></div>
+        </div>
+    </div>
+
+    <!-- ===== Экран чата ===== -->
+    <div id="chatScreen" class="container">
         <div class="header">
             <h1>Anonymous Chat</h1>
             <div class="user-info">
                 <span>You: </span>
                 <span id="username"></span>
                 <button id="changeNicknameBtn" class="change-nickname-btn" title="Change nickname">✏️</button>
+                <button id="logoutBtn" class="change-nickname-btn" title="Log out">🚪</button>
             </div>
         </div>
 
@@ -25,7 +64,8 @@
                     <button class="modal-close" id="closeModalBtn">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <input type="text" id="newNicknameInput" placeholder="Enter a new nickname (32 characters)" maxlength="32" autocomplete="off">
+                    <input type="text" id="newNicknameInput" placeholder="Enter a new nickname (32 characters)"
+                        maxlength="32" autocomplete="off">
                     <div class="modal-buttons">
                         <button id="generateNicknameBtn" class="btn-secondary">Generate random</button>
                         <button id="saveNicknameBtn" class="btn-primary">Save</button>
@@ -33,11 +73,11 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="chat-container">
             <div id="messages" class="messages"></div>
         </div>
-        
+
         <div class="input-container">
             <input type="text" id="messageInput" placeholder="Type here..." autocomplete="off">
             <button id="sendButton">Send</button>
@@ -48,12 +88,14 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getDatabase, ref, push, onChildAdded, query, orderByKey, limitToLast, startAfter } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
-        
-        // Экспортируем Firebase функции для использования в app.js
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendEmailVerification, onAuthStateChanged, reload } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
         window.firebaseApp = { initializeApp, getDatabase, ref, push, onChildAdded, query, orderByKey, limitToLast, startAfter };
+        window.firebaseAuth = { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendEmailVerification, onAuthStateChanged, reload };
         window.firebaseReady = true;
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
     <script type="module" src="app.js"></script>
 </body>
+
 </html>

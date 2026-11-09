@@ -1,34 +1,4 @@
-// Генерация случайного никнейма из 32 символов
-function generateRandomNickname() {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let nickname = '';
-    for (let i = 0; i < 32; i++) {
-        nickname += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return nickname;
-}
-
-// Получение или создание никнейма
-function getOrCreateNickname() {
-    let nickname = localStorage.getItem('chat_nickname');
-    if (!nickname) {
-        nickname = generateRandomNickname();
-        localStorage.setItem('chat_nickname', nickname);
-    }
-    return nickname;
-}
-
-// Сохранение последнего прочитанного сообщения
-function saveLastReadMessage(messageKey) {
-    localStorage.setItem('chat_lastReadMessage', messageKey);
-}
-
-// Получение последнего прочитанного сообщения
-function getLastReadMessage() {
-    return localStorage.getItem('chat_lastReadMessage');
-}
-
-// Инициализация Firebase
+// ============ Firebase конфиг ============
 const firebaseConfig = {
     apiKey: "AIzaSyCkJoRTFfuD1mIHiJ1TnANANvW-S_G_iXI",
     authDomain: "chat-anonym-f876f.firebaseapp.com",
@@ -38,33 +8,43 @@ const firebaseConfig = {
     messagingSenderId: "709588409625",
     appId: "1:709588409625:web:39f986f47ae2aac102f988",
     measurementId: "G-PLEP9VFY5E"
-  };
+};
 
-// Инициализация приложения
-let app, database, messagesRef;
+// ============ Глобальное состояние ============
+let app, database, messagesRef, auth;
+let currentUser = null;
+let username = '';
+let chatInitialized = false;
+let messageUnsubscribe = null;
+let verifyPollInterval = null;
+let authMode = 'login'; // 'login' | 'register'
 
-function initFirebase() {
-    if (!window.firebaseApp) {
-        console.log('Ожидание загрузки Firebase...');
-        window.addEventListener('firebaseReady', initFirebase, { once: true });
-        return;
-    }
+// Скролл
+let isUserScrolling = false;
+let isInitialLoad = true;
+let lastReadMessageKey = null;
+let loadedMessageKeys = new Set();
+let initialLoadTimeout;
+let foundLastReadMessage = false;
 
-    try {
-        app = window.firebaseApp.initializeApp(firebaseConfig);
-        database = window.firebaseApp.getDatabase(app);
-        messagesRef = window.firebaseApp.ref(database, 'messages');
-        console.log('Firebase инициализирован успешно');
-        
-        // Инициализируем остальную часть приложения
-        initApp();
-    } catch (error) {
-        console.error('Ошибка инициализации Firebase:', error);
-        alert('Ошибка подключения к базе данных. Проверьте консоль браузера.');
-    }
-}
+// ============ DOM ============
+const authScreen = document.getElementById('authScreen');
+const verifyScreen = document.getElementById('verifyScreen');
+const chatScreen = document.getElementById('chatScreen');
+const authEmail = document.getElementById('authEmail');
+const authPassword = document.getElementById('authPassword');
+const authPasswordConfirm = document.getElementById('authPasswordConfirm');
+const authSubmitBtn = document.getElementById('authSubmitBtn');
+const authError = document.getElementById('authError');
+const loginTab = document.getElementById('loginTab');
+const registerTab = document.getElementById('registerTab');
+const verifyEmail = document.getElementById('verifyEmail');
+const resendVerifyBtn = document.getElementById('resendVerifyBtn');
+const checkVerifyBtn = document.getElementById('checkVerifyBtn');
+const logoutBtnVerify = document.getElementById('logoutBtnVerify');
+const verifyMessage = document.getElementById('verifyMessage');
+const logoutBtn = document.getElementById('logoutBtn');
 
-// Элементы DOM
 const messagesContainer = document.getElementById('messages');
 const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
@@ -76,43 +56,265 @@ const newNicknameInput = document.getElementById('newNicknameInput');
 const saveNicknameBtn = document.getElementById('saveNicknameBtn');
 const generateNicknameBtn = document.getElementById('generateNicknameBtn');
 
-// Получение никнейма (делаем переменной, чтобы можно было изменять)
-let username = getOrCreateNickname();
-usernameDisplay.textContent = username;
-
-// Флаги для управления скроллом
-let isUserScrolling = false;
-let isInitialLoad = true;
-let lastReadMessageKey = getLastReadMessage();
-let loadedMessageKeys = new Set();
-
-// Проверка, находится ли пользователь внизу чата
-function isNearBottom() {
-    const container = document.querySelector('.chat-container');
-    const threshold = 150; // пикселей от низа
-    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+// ============ Никнейм (привязан к UID) ============
+function generateRandomNickname() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let nickname = '';
+    for (let i = 0; i < 32; i++) {
+        nickname += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nickname;
+}
+function nicknameKey() {
+    return `chat_nickname_${currentUser ? currentUser.uid : 'anon'}`;
+}
+function getOrCreateNickname() {
+    const key = nicknameKey();
+    let nickname = localStorage.getItem(key);
+    if (!nickname) {
+        nickname = generateRandomNickname();
+        localStorage.setItem(key, nickname);
+    }
+    return nickname;
 }
 
-// Плавная прокрутка вниз
-function scrollToBottom(smooth = true) {
-    const container = document.querySelector('.chat-container');
-    if (smooth) {
-        container.scrollTo({
-            top: container.scrollHeight,
-            behavior: 'smooth'
-        });
-    } else {
-        container.scrollTop = container.scrollHeight;
+// ============ Last read (привязан к UID) ============
+function lastReadKey() {
+    return `chat_lastReadMessage_${currentUser ? currentUser.uid : 'anon'}`;
+}
+function saveLastReadMessage(key) { localStorage.setItem(lastReadKey(), key); }
+function getLastReadMessage() { return localStorage.getItem(lastReadKey()); }
+
+// ============ Управление экранами ============
+function showScreen(name) {
+    authScreen.style.display = name === 'auth' ? 'flex' : 'none';
+    verifyScreen.style.display = name === 'verify' ? 'flex' : 'none';
+    chatScreen.style.display = name === 'chat' ? 'flex' : 'none';
+}
+
+// ============ Auth: форма ============
+function setAuthMode(mode) {
+    authMode = mode;
+    loginTab.classList.toggle('active', mode === 'login');
+    registerTab.classList.toggle('active', mode === 'register');
+    authPasswordConfirm.style.display = mode === 'register' ? 'block' : 'none';
+    authSubmitBtn.textContent = mode === 'login' ? 'Login' : 'Register';
+    authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    authError.textContent = '';
+}
+
+function authErrorMessage(err) {
+    const map = {
+        'auth/invalid-email': 'Неверный email',
+        'auth/user-disabled': 'Аккаунт заблокирован',
+        'auth/user-not-found': 'Аккаунт не найден',
+        'auth/wrong-password': 'Неверный пароль',
+        'auth/invalid-credential': 'Неверный email или пароль',
+        'auth/email-already-in-use': 'Этот email уже зарегистрирован',
+        'auth/weak-password': 'Пароль слишком короткий (минимум 6 символов)',
+        'auth/too-many-requests': 'Слишком много попыток. Попробуйте позже',
+        'auth/network-request-failed': 'Ошибка сети. Проверьте подключение',
+        'auth/operation-not-allowed': 'Email/Password вход отключён в Firebase Console'
+    };
+    return map[err.code] || (err.message || 'Неизвестная ошибка');
+}
+
+async function handleAuthSubmit() {
+    authError.textContent = '';
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+
+    if (!email || !password) {
+        authError.textContent = 'Заполните все поля';
+        return;
+    }
+
+    try {
+        authSubmitBtn.disabled = true;
+        if (authMode === 'login') {
+            await window.firebaseAuth.signInWithEmailAndPassword(auth, email, password);
+            // экран переключит onAuthStateChanged
+        } else {
+            const confirmPw = authPasswordConfirm.value;
+            if (password !== confirmPw) {
+                authError.textContent = 'Пароли не совпадают';
+                return;
+            }
+            if (password.length < 6) {
+                authError.textContent = 'Пароль должен содержать минимум 6 символов';
+                return;
+            }
+            const cred = await window.firebaseAuth.createUserWithEmailAndPassword(auth, email, password);
+            await window.firebaseAuth.sendEmailVerification(cred.user);
+            // onAuthStateChanged покажет экран верификации
+        }
+    } catch (err) {
+        console.error('Auth error:', err);
+        authError.textContent = authErrorMessage(err);
+    } finally {
+        authSubmitBtn.disabled = false;
     }
 }
 
-// Отправка сообщения
+// ============ Auth: верификация ============
+async function handleResendVerification() {
+    if (!currentUser) return;
+    verifyMessage.style.color = '#333';
+    try {
+        await window.firebaseAuth.sendEmailVerification(currentUser);
+        verifyMessage.textContent = 'Письмо отправлено повторно ✓';
+        verifyMessage.style.color = 'green';
+    } catch (err) {
+        verifyMessage.textContent = authErrorMessage(err);
+        verifyMessage.style.color = '#e74c3c';
+    }
+}
+
+async function handleCheckVerification() {
+    if (!currentUser) return;
+    verifyMessage.style.color = '#333';
+    verifyMessage.textContent = 'Проверяем...';
+    try {
+        await window.firebaseAuth.reload(currentUser);
+        if (currentUser.emailVerified) {
+            verifyMessage.textContent = 'Email подтверждён!';
+            verifyMessage.style.color = 'green';
+            handleAuthStateChanged(currentUser);
+        } else {
+            verifyMessage.textContent = 'Почта пока не подтверждена. Проверьте inbox.';
+        }
+    } catch (err) {
+        verifyMessage.textContent = authErrorMessage(err);
+        verifyMessage.style.color = '#e74c3c';
+    }
+}
+
+function startVerifyPolling() {
+    stopVerifyPolling();
+    verifyPollInterval = setInterval(async () => {
+        if (!currentUser) return;
+        try {
+            await window.firebaseAuth.reload(currentUser);
+            if (currentUser.emailVerified) {
+                handleAuthStateChanged(currentUser);
+            }
+        } catch (e) { /* игнорируем */ }
+    }, 5000);
+}
+function stopVerifyPolling() {
+    if (verifyPollInterval) {
+        clearInterval(verifyPollInterval);
+        verifyPollInterval = null;
+    }
+}
+
+async function handleLogout() {
+    try {
+        await window.firebaseAuth.signOut(auth);
+        window.location.reload();
+    } catch (err) {
+        console.error('Logout error:', err);
+    }
+}
+
+// ============ Auth state ============
+function handleAuthStateChanged(user) {
+    currentUser = user;
+
+    if (!user) {
+        teardownChat();
+        stopVerifyPolling();
+        showScreen('auth');
+        return;
+    }
+
+    if (!user.emailVerified) {
+        teardownChat();
+        verifyEmail.textContent = user.email;
+        verifyMessage.textContent = '';
+        showScreen('verify');
+        startVerifyPolling();
+        return;
+    }
+
+    stopVerifyPolling();
+    showScreen('chat');
+    initChat();
+}
+
+// ============ Инициализация чата ============
+function initChat() {
+    if (chatInitialized) return;
+    chatInitialized = true;
+
+    // Сброс состояния
+    messagesContainer.innerHTML = '';
+    loadedMessageKeys.clear();
+    isInitialLoad = true;
+    foundLastReadMessage = false;
+
+    username = getOrCreateNickname();
+    usernameDisplay.textContent = username;
+    lastReadMessageKey = getLastReadMessage();
+
+    // Обработка скролла
+    const chatContainer = document.querySelector('.chat-container');
+    let scrollTimeout;
+    chatContainer.addEventListener('scroll', () => {
+        isUserScrolling = true;
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => { isUserScrolling = false; }, 200);
+    });
+
+    // Отправка
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+    });
+
+    // Модалка никнейма
+    changeNicknameBtn.addEventListener('click', openNicknameModal);
+    closeModalBtn.addEventListener('click', closeNicknameModal);
+    nicknameModal.addEventListener('click', (e) => {
+        if (e.target === nicknameModal) closeNicknameModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && nicknameModal.classList.contains('show')) closeNicknameModal();
+    });
+    saveNicknameBtn.addEventListener('click', () => changeNickname(newNicknameInput.value));
+    generateNicknameBtn.addEventListener('click', () => {
+        newNicknameInput.value = generateRandomNickname();
+        newNicknameInput.focus();
+        newNicknameInput.select();
+    });
+    newNicknameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') changeNickname(newNicknameInput.value);
+    });
+
+    // Logout
+    logoutBtn.addEventListener('click', handleLogout);
+
+    // Слушатель сообщений
+    if (messagesRef) {
+        messageUnsubscribe = window.firebaseApp.onChildAdded(messagesRef, handleMessageAdded, (error) => {
+            console.error('Ошибка чтения сообщений:', error);
+        });
+    }
+}
+
+function teardownChat() {
+    if (!chatInitialized) return;
+    chatInitialized = false;
+    if (messageUnsubscribe) { messageUnsubscribe(); messageUnsubscribe = null; }
+    messagesContainer.innerHTML = '';
+    loadedMessageKeys.clear();
+}
+
+// ============ Отправка сообщения ============
 function sendMessage() {
     const messageText = messageInput.value.trim();
     if (messageText === '') return;
-
-    if (!messagesRef) {
-        console.error('messagesRef не инициализирован');
+    if (!messagesRef || !currentUser) {
         alert('Ошибка: база данных не подключена');
         return;
     }
@@ -120,39 +322,42 @@ function sendMessage() {
     const message = {
         text: messageText,
         username: username,
+        uid: currentUser.uid,
         timestamp: Date.now()
     };
 
-    console.log('Отправка сообщения:', message);
-
-    // Очищаем поле ввода сразу
     messageInput.value = '';
 
     window.firebaseApp.push(messagesRef, message)
-        .then((ref) => {
-            console.log('Сообщение отправлено успешно, ключ:', ref.key);
-        })
+        .then((ref) => console.log('Сообщение отправлено, ключ:', ref.key))
         .catch((error) => {
-            console.error('Ошибка отправки сообщения:', error);
+            console.error('Ошибка отправки:', error);
             alert('Не удалось отправить сообщение: ' + error.message);
-            // Восстанавливаем текст при ошибке
             messageInput.value = messageText;
         });
 }
 
-// Форматирование времени
+// ============ Обработка сообщений ============
 function formatTime(timestamp) {
-    const date = new Date(timestamp);
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    return `${hours}:${minutes}`;
+    const d = new Date(timestamp);
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
-// Создание элемента сообщения
-function createMessageElement(messageData, messageKey, isOwn = false) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isOwn ? 'own' : 'other'}`;
-    messageDiv.dataset.messageKey = messageKey;
+function isNearBottom() {
+    const c = document.querySelector('.chat-container');
+    return c.scrollHeight - c.scrollTop - c.clientHeight < 150;
+}
+
+function scrollToBottom(smooth = true) {
+    const c = document.querySelector('.chat-container');
+    if (smooth) c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+    else c.scrollTop = c.scrollHeight;
+}
+
+function createMessageElement(messageData, messageKey, isOwn) {
+    const div = document.createElement('div');
+    div.className = `message ${isOwn ? 'own' : 'other'}`;
+    div.dataset.messageKey = messageKey;
 
     const header = document.createElement('div');
     header.className = 'message-header';
@@ -166,199 +371,104 @@ function createMessageElement(messageData, messageKey, isOwn = false) {
     time.className = 'message-time';
     time.textContent = formatTime(messageData.timestamp);
 
-    messageDiv.appendChild(header);
-    messageDiv.appendChild(text);
-    messageDiv.appendChild(time);
-
-    return messageDiv;
+    div.append(header, text, time);
+    return div;
 }
 
-// Обработчик добавления сообщения
-let initialLoadTimeout;
-let foundLastReadMessage = false;
-
 function handleMessageAdded(snapshot) {
-    if (!snapshot || !snapshot.val()) {
-        console.warn('Получен пустой snapshot');
-        return;
-    }
-
+    if (!snapshot || !snapshot.val()) return;
     const messageData = snapshot.val();
     const messageKey = snapshot.key;
-    
-    if (!messageData || !messageData.text || !messageData.username) {
-        console.warn('Некорректные данные сообщения:', messageData);
-        return;
-    }
 
-    const isOwn = messageData.username === username;
+    if (!messageData || !messageData.text || !messageData.username) return;
+    if (loadedMessageKeys.has(messageKey)) return;
 
-    // Пропускаем, если сообщение уже добавлено
-    if (loadedMessageKeys.has(messageKey)) {
-        console.log('Сообщение уже загружено, пропускаем:', messageKey);
-        return;
-    }
-
-    console.log('Добавление нового сообщения:', messageKey, messageData.text);
+    // Определяем "своё" по UID (fallback на username для старых сообщений)
+    const isOwn = messageData.uid
+        ? messageData.uid === currentUser.uid
+        : messageData.username === username;
 
     loadedMessageKeys.add(messageKey);
-    const messageElement = createMessageElement(messageData, messageKey, isOwn);
-    messagesContainer.appendChild(messageElement);
-
-    // Сохраняем ключ последнего сообщения
+    messagesContainer.appendChild(createMessageElement(messageData, messageKey, isOwn));
     saveLastReadMessage(messageKey);
-    console.log('Последнее прочитанное сообщение сохранено:', messageKey);
 
-    // Логика прокрутки при начальной загрузке
     if (isInitialLoad) {
-        // Ищем последнее прочитанное сообщение
         if (lastReadMessageKey && messageKey === lastReadMessageKey && !foundLastReadMessage) {
             foundLastReadMessage = true;
             clearTimeout(initialLoadTimeout);
             setTimeout(() => {
-                messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // После прокрутки к последнему прочитанному, завершаем начальную загрузку
-                setTimeout(() => {
-                    isInitialLoad = false;
-                }, 500);
+                messagesContainer.querySelector(`[data-message-key="${messageKey}"]`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => { isInitialLoad = false; }, 500);
             }, 300);
             return;
         }
-
-        // Если нет сохраненного сообщения или оно не найдено, прокручиваем вниз после небольшой задержки
         if (!lastReadMessageKey || !foundLastReadMessage) {
             clearTimeout(initialLoadTimeout);
             initialLoadTimeout = setTimeout(() => {
-                if (isInitialLoad) {
-                    scrollToBottom(false);
-                    isInitialLoad = false;
-                }
+                if (isInitialLoad) { scrollToBottom(false); isInitialLoad = false; }
             }, 800);
         }
     } else {
-        // При получении новых сообщений: прокручиваем только если пользователь внизу или это его сообщение
         if (isOwn) {
-            // Всегда прокручиваем для своих сообщений
-            setTimeout(() => {
-                scrollToBottom(true);
-            }, 50);
+            setTimeout(() => scrollToBottom(true), 50);
         } else if (isNearBottom() && !isUserScrolling) {
-            // Прокручиваем только если пользователь уже внизу
-            setTimeout(() => {
-                scrollToBottom(true);
-            }, 50);
+            setTimeout(() => scrollToBottom(true), 50);
         }
     }
 }
 
-// Функции для работы с никнеймом
+// ============ Модалка никнейма ============
 function openNicknameModal() {
     newNicknameInput.value = username;
     nicknameModal.classList.add('show');
     newNicknameInput.focus();
     newNicknameInput.select();
 }
-
-function closeNicknameModal() {
-    nicknameModal.classList.remove('show');
-}
-
+function closeNicknameModal() { nicknameModal.classList.remove('show'); }
 function changeNickname(newNickname) {
-    if (!newNickname || newNickname.trim() === '') {
-        alert('Никнейм не может быть пустым');
-        return;
-    }
-    
-    newNickname = newNickname.trim();
-    
-    // Ограничиваем длину до 32 символов
-    if (newNickname.length > 32) {
-        newNickname = newNickname.substring(0, 32);
-    }
-    
-    // Сохраняем новый никнейм
+    if (!newNickname || !newNickname.trim()) { alert('Никнейм не может быть пустым'); return; }
+    newNickname = newNickname.trim().substring(0, 32);
     username = newNickname;
-    localStorage.setItem('chat_nickname', username);
+    localStorage.setItem(nicknameKey(), username);
     usernameDisplay.textContent = username;
-    
-    console.log('Никнейм изменен на:', username);
     closeNicknameModal();
 }
 
-// Инициализация приложения после подключения Firebase
-function initApp() {
-    // Обработка скролла пользователя
-    const chatContainer = document.querySelector('.chat-container');
-    let scrollTimeout;
-    chatContainer.addEventListener('scroll', () => {
-        isUserScrolling = true;
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-            isUserScrolling = false;
-        }, 200);
-    });
+// ============ Firebase init ============
+function initFirebase() {
+    if (!window.firebaseApp || !window.firebaseAuth) {
+        window.addEventListener('firebaseReady', initFirebase, { once: true });
+        return;
+    }
 
-    // Обработчики отправки сообщений
-    sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            sendMessage();
-        }
-    });
+    try {
+        app = window.firebaseApp.initializeApp(firebaseConfig);
+        database = window.firebaseApp.getDatabase(app);
+        messagesRef = window.firebaseApp.ref(database, 'messages');
+        auth = window.firebaseAuth.getAuth(app);
 
-    // Обработчики для изменения никнейма
-    changeNicknameBtn.addEventListener('click', openNicknameModal);
-    closeModalBtn.addEventListener('click', closeNicknameModal);
-    
-    // Закрытие модального окна при клике вне его
-    nicknameModal.addEventListener('click', (e) => {
-        if (e.target === nicknameModal) {
-            closeNicknameModal();
-        }
-    });
-    
-    // Закрытие по Escape
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && nicknameModal.classList.contains('show')) {
-            closeNicknameModal();
-        }
-    });
-    
-    // Сохранение никнейма
-    saveNicknameBtn.addEventListener('click', () => {
-        changeNickname(newNicknameInput.value);
-    });
-    
-    // Генерация случайного никнейма
-    generateNicknameBtn.addEventListener('click', () => {
-        const randomNickname = generateRandomNickname();
-        newNicknameInput.value = randomNickname;
-        newNicknameInput.focus();
-        newNicknameInput.select();
-    });
-    
-    // Сохранение по Enter в поле ввода никнейма
-    newNicknameInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            changeNickname(newNicknameInput.value);
-        }
-    });
+        // Подключаем UI auth
+        loginTab.addEventListener('click', () => setAuthMode('login'));
+        registerTab.addEventListener('click', () => setAuthMode('register'));
+        authSubmitBtn.addEventListener('click', handleAuthSubmit);
+        authPassword.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAuthSubmit(); });
+        authPasswordConfirm.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAuthSubmit(); });
+        resendVerifyBtn.addEventListener('click', handleResendVerification);
+        checkVerifyBtn.addEventListener('click', handleCheckVerification);
+        logoutBtnVerify.addEventListener('click', handleLogout);
 
-    // Слушатель всех сообщений (для начальной загрузки и новых)
-    if (messagesRef) {
-        console.log('Подключение слушателя сообщений...');
-        window.firebaseApp.onChildAdded(messagesRef, (snapshot) => {
-            handleMessageAdded(snapshot);
-        }, (error) => {
-            console.error('Ошибка при чтении сообщений:', error);
-            alert('Ошибка чтения сообщений: ' + error.message);
-        });
-    } else {
-        console.error('messagesRef не инициализирован, слушатель не подключен');
+        setAuthMode('login');
+
+        // Слушатель состояния авторизации
+        window.firebaseAuth.onAuthStateChanged(auth, handleAuthStateChanged);
+    } catch (error) {
+        console.error('Ошибка инициализации Firebase:', error);
+        alert('Ошибка подключения к базе данных. Проверьте консоль.');
     }
 }
 
-// Запускаем инициализацию Firebase
+// ============ Boot ============
 if (window.firebaseReady) {
     initFirebase();
 } else {
